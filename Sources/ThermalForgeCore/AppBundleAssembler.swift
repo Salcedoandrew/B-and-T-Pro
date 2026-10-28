@@ -22,7 +22,7 @@ public enum AppBundleAssembler {
     /// before the swap. Returns a warning if the swapped-out old bundle couldn't be
     /// removed.
     @discardableResult
-    public static func assemble(binary: String, icon: String, dest: String,
+    public static func assemble(binary: String, icon: String, cli: String? = nil, dest: String,
                                 owner: UserDataLocation.Owner? = UserDataLocation.current.owner) throws -> String? {
         let fm = FileManager.default
         let staging = AtomicReplace.stagingPath(for: dest)
@@ -34,6 +34,12 @@ public enum AppBundleAssembler {
             try SafeFileCopy.copyRegularFile(from: binary, to: "\(contents)/MacOS/ThermalForgeApp",
                                              requireExecutable: true)
             try SafeFileCopy.copyRegularFile(from: icon, to: "\(contents)/Resources/AppIcon.icns")
+            if let cli {
+                // The CLI the app runs to install/re-sync its own daemon, so a
+                // packaged .app needs no separate Homebrew install (DaemonInstaller).
+                try SafeFileCopy.copyRegularFile(from: cli, to: "\(contents)/Resources/thermalforge",
+                                                 requireExecutable: true)
+            }
             try infoPlist().write(toFile: "\(contents)/Info.plist", atomically: true, encoding: .utf8)
             if let owner { try BundleOwnership.handOver(staging, to: owner) }
         } catch {

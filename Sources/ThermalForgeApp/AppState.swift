@@ -41,6 +41,13 @@ final class AppState: ObservableObject {
     /// without the daemon the app can't control fans at all, so this must be
     /// visible, not just logged. Cleared the moment a heartbeat succeeds.
     @Published var daemonUnreachable: Bool = false
+    /// True when no daemon has ever been installed on this Mac. Drives the
+    /// first-run "Enable fan control" card, so setup never needs a Terminal.
+    @Published var daemonMissing: Bool = !DaemonInstaller.isDaemonInstalled
+    /// An in-app install is running, so the setup button can't be double-fired.
+    @Published var daemonSetupBusy: Bool = false
+    /// Failure text from the last in-app install attempt, else nil.
+    @Published var daemonSetupError: String?
     /// A GitHub release newer than this installed build, else nil. Non-nil drives
     /// the "Update available" banner. Set from a once-daily check and from persisted
     /// state on launch (so it shows without waiting for a network round-trip); a
@@ -75,7 +82,8 @@ final class AppState: ObservableObject {
                 // 5s for the poll). Otherwise it's a real failure — log it.
                 if let state = try? DaemonClient().readState(), state.isCLIHold {
                     TFLogger.shared.info("Fan command yielded to CLI hold: \(command)")
-                    Task { @MainActor in self?.externalHold = state }
+                    let app = self   // copy out of the weak var: Swift 5.10 rejects captured var self
+                    Task { @MainActor in app?.externalHold = state }
                 } else {
                     TFLogger.shared.error("Fan command failed: \(command) — \(error)")
                 }
@@ -91,6 +99,10 @@ final class AppState: ObservableObject {
 
         // Show a previously-found update immediately, before any network call.
         availableUpdate = Self.storedAvailableUpdate()
+
+        if daemonMissing {
+            TFLogger.shared.info("No background service installed — showing one-time setup")
+        }
 
         adoptDaemonStateOnLaunch()
 
@@ -409,8 +421,8 @@ final class AppState: ObservableObject {
         // on failure, leave the current profile active (so the monitor keeps trying)
         // and log it, rather than a false "Silent, handled" over a dead daemon.
         commandPump.submit(.resetAuto) { [weak self] ok in
+            guard let self else { return }   // bind outside the Task: Swift 5.10 rejects captured var self
             Task { @MainActor in
-                guard let self else { return }
                 guard ok else {
                     TFLogger.shared.error("Reset to Default failed — daemon unreachable; fans NOT reset")
                     return
@@ -467,6 +479,41 @@ final class AppState: ObservableObject {
     /// this service" — via an Authorization prompt: macOS shows the password dialog
     /// and handles the credential; the app never sees it. On success the next
     /// heartbeat clears `daemonUnreachable`.
+    /// Install (or re-sync) the privileged daemon from the CLI inside the app
+    /// bundle: one macOS admin prompt, no Terminal. Relaunches on success so
+    /// launch adoption picks the new socket up.
+    func installDaemon() {
+        guard !daemonSetupBusy else { return }
+        daemonSetupBusy = true
+        daemonSetupError = nil
+        // The auth prompt and the installer both block, so keep them off the main
+        // thread — the menu stays responsive while macOS asks for the password.
+        let worker = Thread { [weak self] in
+            let result = DaemonInstaller.install()
+            let app = self   // copy out of the weak var: Swift 5.10 rejects captured var self
+            Task { @MainActor in app?.applySetupResult(result) }
+        }
+        worker.qualityOfService = .userInitiated
+        worker.start()
+    }
+
+    private func applySetupResult(_ result: DaemonInstallResult) {
+        daemonSetupBusy = false
+        switch result {
+        case .installed:
+            TFLogger.shared.info("Background service installed from the app bundle — relaunching")
+            daemonMissing = false
+            daemonVersionMismatch = nil
+            daemonUnreachable = false
+            DaemonInstaller.relaunch()
+        case .cancelled:
+            TFLogger.shared.info("Background service setup cancelled by the user")
+        case .failed(let reason):
+            TFLogger.shared.error("Background service setup failed: \(reason)")
+            daemonSetupError = reason
+        }
+    }
+
     func restartDaemon() {
         let label = ThermalForgeDaemon.label
         DispatchQueue.global(qos: .userInitiated).async {

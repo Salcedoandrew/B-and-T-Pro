@@ -26,7 +26,17 @@ struct MenuBarView: View {
 
             Divider()
 
-            if appState.daemonUnreachable {
+            if appState.daemonMissing {
+                // First run from the app itself: the background service has never
+                // been installed, so offer the one-click setup card ahead of every
+                // other state (nothing else can work without the daemon).
+                DaemonSetupBanner(
+                    busy: appState.daemonSetupBusy,
+                    error: appState.daemonSetupError,
+                    onInstall: { appState.installDaemon() }
+                )
+                Divider()
+            } else if appState.daemonUnreachable {
                 // Daemon not answering — nothing in the app can touch the fans, so
                 // this takes over the top of the menu and offers a one-click fix.
                 // The version/hold banners are moot while it's unreachable.
@@ -36,7 +46,9 @@ struct MenuBarView: View {
                 // Update-needed banner — shown whenever the daemon is out of sync.
                 // Persistent (no dismiss): a stale daemon should keep nagging.
                 if let daemonVersion = appState.daemonVersionMismatch {
-                    DaemonUpdateBanner(daemonVersion: daemonVersion)
+                    DaemonUpdateBanner(daemonVersion: daemonVersion,
+                                       busy: appState.daemonSetupBusy,
+                                       onResync: { appState.installDaemon() })
                     Divider()
                 }
 
@@ -258,9 +270,12 @@ private struct ExternalHoldBanner: View {
 }
 
 /// Non-modal in-menu banner telling the user the background daemon is out of
-/// sync and exactly how to fix it. Command is selectable so it can be copied.
+/// sync, with a one-click re-sync from the copy of the CLI inside the app bundle
+/// (no Terminal, standard macOS admin prompt).
 private struct DaemonUpdateBanner: View {
     let daemonVersion: String
+    let busy: Bool
+    let onResync: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -273,19 +288,68 @@ private struct DaemonUpdateBanner: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Run this in Terminal:")
+            Button(action: onResync) {
+                Label(busy ? "Re-syncing…" : "Re-sync background service", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption.bold())
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+            .disabled(busy)
+            .padding(.top, 2)
+
+            Text("Asks for your password once.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .padding(.top, 2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12))
+    }
+}
+
+/// First-run card: the background service has never been installed, so nothing in
+/// the app can move the fans yet. Setup runs the CLI shipped inside the app behind
+/// the standard macOS admin prompt — deliberately no Terminal command to copy.
+private struct DaemonSetupBanner: View {
+    let busy: Bool
+    let error: String?
+    let onInstall: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Finish setup", systemImage: "wrench.and.screwdriver.fill")
+                .font(.caption.bold())
+                .foregroundStyle(.orange)
+
+            Text("ThermalForge needs a one-time background service to change fan speeds. It's inside this app — no download, no Terminal.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("sudo thermalforge install")
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
+            Button(action: onInstall) {
+                Label(busy ? "Setting up…" : "Enable fan control", systemImage: "bolt.fill")
+                    .font(.caption.bold())
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+            .disabled(busy)
+            .padding(.top, 2)
+
+            if let error {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("macOS asks for your password once. The app restarts when it's done.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

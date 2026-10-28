@@ -1243,9 +1243,12 @@ struct BuildApp: ParsableCommand {
     @Option(name: .long, help: "Destination .app bundle path (created or replaced)")
     var dest: String
 
+    @Option(name: .long, help: "CLI to embed for in-app daemon setup (optional)")
+    var cli: String?
+
     func run() throws {
         // The single assembler (ThermalForgeCore), shared with install's build route.
-        if let warning = try AppBundleAssembler.assemble(binary: binary, icon: icon, dest: dest) {
+        if let warning = try AppBundleAssembler.assemble(binary: binary, icon: icon, cli: cli, dest: dest) {
             print("Warning: \(warning)")
         }
         print("Assembled \(dest) (version \(ThermalForgeVersion.current))")
