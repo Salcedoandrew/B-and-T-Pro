@@ -101,6 +101,15 @@ cd ThermalForge
 
 Builds everything, installs the CLI, creates the menu bar app in `/Applications`, and sets up the daemon. One password prompt, fully automatic.
 
+### Option C: DMG
+
+Download `ThermalForge-0.2.3-arm64.dmg` from the
+[releases page](https://github.com/Salcedoandrew/B-and-T-Pro/releases),
+verify it with `shasum -a 256 -c SHA256SUMS` in the download folder,
+open it, and drag ThermalForge.app to Applications. First launch needs
+right-click Open (ad-hoc signed, not notarized), then one administrator
+prompt installs the fan daemon.
+
 ### After install
 
 Open ThermalForge from Spotlight, Finder (Applications > ThermalForge), or terminal:
