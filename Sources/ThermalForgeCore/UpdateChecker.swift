@@ -45,9 +45,9 @@ public enum UpdateCheckResult: Equatable, Sendable {
 public enum UpdateChecker {
     /// `/releases/latest` returns the newest release EXCLUDING drafts and
     /// prereleases, so only stable releases we actually cut can ever surface.
-    public static let releasesAPIURL = URL(string: "https://api.github.com/repos/ProducerGuy/ThermalForge/releases/latest")!
+    public static let releasesAPIURL = URL(string: "https://api.github.com/repos/Salcedoandrew/B-and-T-Pro/releases/latest")!
     /// Fallback "What's new" link when a persisted check has no stored URL.
-    public static let releasesPageURL = "https://github.com/ProducerGuy/ThermalForge/releases/latest"
+    public static let releasesPageURL = "https://github.com/Salcedoandrew/B-and-T-Pro/releases/latest"
 
     /// Pure comparison. Returns an AvailableUpdate iff `tagName` is a strictly newer
     /// version than `current`, else nil.
