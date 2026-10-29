@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release
+        run: swift build -c release
+
+      - name: Test gate
+        run: swift test
+
+      - name: Assemble ThermalForge.app
+        run: |
+          ./.build/release/thermalforge build-app \
+            --binary ./.build/release/ThermalForgeApp \
+            --icon ThermalForge.icns \
+            --cli ./.build/release/thermalforge \
+            --dest ./ThermalForge.app
+          # The --cli embed above is required: the app installs its fan
+          # daemon from the CLI inside the bundle. Without it, first
+          # launch fails with "missing installer".
+          codesign --force --deep --sign - ./ThermalForge.app
+          codesign --verify --strict ./ThermalForge.app
+
+      - name: Create dmg and checksums
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          DMG="ThermalForge-${TAG}-arm64.dmg"
+          mkdir -p staging
+          cp -R ./ThermalForge.app staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname ThermalForge -srcfolder staging -ov -format UDZO "$DMG"
+          hdiutil verify "$DMG"
+          shasum -a 256 "$DMG" > SHA256SUMS
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          ls -lh "$DMG" SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The connector has no tag tool, so the release (and its tag)
+          # are created in the web UI first, which triggers this workflow.
+          # Upload into that release when it already exists; otherwise
+          # create it as a full release (never pre-release: the in-app
+          # updater ignores drafts and pre-releases).
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" SHA256SUMS --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$DMG" SHA256SUMS \
+              --title "ThermalForge ${GITHUB_REF_NAME}" \
+              --notes-file docs/release-notes-0.2.3.md
+          fi
